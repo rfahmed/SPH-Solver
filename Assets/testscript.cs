@@ -10,6 +10,7 @@ using static UnityEngine.Random;
 public class testscript : MonoBehaviour
 {
     public float gravity;
+    public float viscosity_factor;
     float smoothingRadius;
     public static int num_particles = 500;
     ParticleScript[] particles;
@@ -36,8 +37,9 @@ public class testscript : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        gravity = 4f;
-        ideal_density = 1.1f * num_particles / (bounds_size.x * bounds_size.y);
+        gravity = 6f;
+        reynolds_number = 0.25f;
+        ideal_density = 1f * num_particles / (bounds_size.x * bounds_size.y);
         pressure_factor = (5.3f * gravity) / ideal_density;
         smoothingRadius = 1f;
         particle_size = 1f;
@@ -103,7 +105,16 @@ public class testscript : MonoBehaviour
         for (int i = 0;i<num_particles;i++){
             float2 pressureForce = calculatePressureForce(i);
             float2 a_pressure = pressureForce /densities[i];
+
+            float2 a_viscosity = computeViscosity(i, time_step, magnitude(pressureForce));
+
+            a_viscosity *= reynolds_number;
+
+            Debug.Log("Viscosity: " + a_viscosity);
+
             velocities[i] += (a_pressure) * time_step;
+
+            velocities[i]+= (a_viscosity) * time_step;
         }
         Parallel.For(0,num_particles,i=>{
             positions[i]+= velocities[i] * time_step;
@@ -372,6 +383,33 @@ public class testscript : MonoBehaviour
     float densityToPressure(float density){
         float density_error = density - ideal_density;
         return density_error * pressure_factor;
+    }
+
+    float2 computeViscosity(int particle_index, float time_value, float pressure_value){
+        float2 v = (pressure_value * time_value) / densities[particle_index];
+
+        float2 ith_position = positions[particle_index];
+        int sector = getGridSector(ith_position.x, ith_position.y);
+        int[] nearby_sectors = getNearbySectors(sector);
+        float2 viscosity = new float2(0f, 0f);
+        foreach (int nearby_sector in nearby_sectors){
+            foreach (int index in gridArr[nearby_sector]){
+                if (index!=particle_index){
+                    float2 v_ij = velocities[particle_index] - velocities[index];
+                    v_ij *= (particle_mass / densities[index]);
+                    float x_ij = Max(magnitude(positions[particle_index] - positions[index]), 0.001f);
+                    float w_ij = smoothingKernelDerivative(smoothingRadius, x_ij);
+                    v_ij *= (x_ij * w_ij);
+                    v_ij /= (float) (x_ij * x_ij + (0.01 * smoothingRadius * smoothingRadius));
+
+                    viscosity+= v_ij;
+                }
+            }
+
+        }
+        viscosity *= 2 * v;
+
+        return viscosity;
     }
 
 }
