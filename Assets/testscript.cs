@@ -85,7 +85,7 @@ public class testscript : MonoBehaviour
             sector_list[i] = particle_sector;
         }
         for (int i = 0;i<num_particles;i++){
-            densities[i] = getDensityNew(positions[i]);
+            densities[i] = getDensity(positions[i]);
         }
     }
 
@@ -97,24 +97,14 @@ public class testscript : MonoBehaviour
 
         Parallel.For(0,num_particles,i=>{
             velocities[i]+= (new float2(0f,-1f)) * gravity * time_step;
-            densities[i] = getDensityNew(positions[i]);
+            densities[i] = getDensity(positions[i]);
         });
 
         for (int i = 0;i<num_particles;i++){
-            float2 pressureForce = calculatePressureForceNew(i);
+            float2 pressureForce = calculatePressureForce(i);
             float2 a_pressure = pressureForce /densities[i];
             velocities[i] += (a_pressure) * time_step;
         }
-        /*
-        for (int i = 0;i<num_particles;i++){
-            velocities[i]+= (new float2(0f,-1f)) * gravity * time_step;
-            densities[i] = getDensityNew(positions[i]);
-        }
-        for (int i = 0;i<num_particles;i++){
-            positions[i]+= velocities[i] * time_step;
-            FixCollisions(i);
-        }
-        */
         Parallel.For(0,num_particles,i=>{
             positions[i]+= velocities[i] * time_step;
             FixCollisions(i);
@@ -127,7 +117,7 @@ public class testscript : MonoBehaviour
         
 
     }
-
+    //Resolve particles that have moved out of the bounds of the simulation
     void FixCollisions(int i){
         float2 half_bound_size = bounds_size / 2 - (new float2(1,1)) * particle_size;
 
@@ -140,7 +130,8 @@ public class testscript : MonoBehaviour
             velocities[i].y *=-1.5f * damping_factor;
         }
     }
-    float smoothingKernelNew(float radius, float distance){
+    //Smoothing kernel used to determine the influence of density and pressure for particles within the smoothing radius
+    float smoothingKernel(float radius, float distance){
 
         float h = radius / 2f;
 
@@ -156,8 +147,8 @@ public class testscript : MonoBehaviour
             return 0f;
         }
     }
-
-    float smoothingKernelDerivativeNew(float radius, float distance){
+    //Compute the derivative of the smoothing kernel function
+    float smoothingKernelDerivative(float radius, float distance){
         float h = radius / 2f;
 
         if (distance >=0 && distance <=h){
@@ -170,7 +161,8 @@ public class testscript : MonoBehaviour
         }
         return 0f;
     }
-    float getDensityNew(float2 density_position){
+    //Totaling the densities of the particles in the smoothing radius for a given position
+    float getDensity(float2 density_position){
         float x_position = density_position.x;
         float y_position = density_position.y;
 
@@ -182,7 +174,7 @@ public class testscript : MonoBehaviour
 
             foreach (int particle_index in given_sector){
                 float distance = magnitude(positions[particle_index] - density_position);
-                float influence = smoothingKernelNew(smoothingRadius, distance);
+                float influence = smoothingKernel(smoothingRadius, distance);
 
                 density+= particle_mass * influence;
             }
@@ -190,7 +182,7 @@ public class testscript : MonoBehaviour
 
         return (float) Max(density, 0.01f);
     }
-
+    //Compute the magnitude of a float 2 vector-like object
     float magnitude(float2 vector){
         return (float) Pow(Pow(vector.x, 2) + Pow(vector.y, 2), 0.5);
     }
@@ -203,7 +195,8 @@ public class testscript : MonoBehaviour
     //10 11 12 13 14
     //15 16 17 18 19
     //20 21 22 23 24
-
+    
+    //Get the specific grid sector for a given x and y position
     int getGridSector(float x_coord, float y_coord){
         int[,] sector_map = new int[5,5]{
             {0,1,2,3,4},
@@ -230,7 +223,7 @@ public class testscript : MonoBehaviour
         return sector_map[y_sector,x_sector];
 
     }
-
+    //get the nearby sectors for a given sector to more efficiently search for particles in the smoothing radius
     int[] getNearbySectors(int sector){
         int[] to_return;
 
@@ -319,7 +312,7 @@ public class testscript : MonoBehaviour
 
         return to_return;
     }
-
+    //updating the particle indices for the arrayLists representing each grid sector
     void updateGridArray(){
         for (int i = 0;i<num_particles;i++){
             float x_position = positions[i].x;
@@ -335,12 +328,8 @@ public class testscript : MonoBehaviour
             sector_list[i] = new_sector;
         }
     }
-
-    float arbitraryFunc(float2 pos){
-        return Mathf.Cos(pos.y - 3 + Mathf.Sin(pos.x));
-    }
-
-    float2 calculatePressureForceNew(int particle_index){
+    //Compute the pressure Force using the derivative of the smoothing Kernel from earlier
+    float2 calculatePressureForce(int particle_index){
         float2 pressureForce = new float2(0f, 0f);
 
         float2 particle_position = positions[particle_index];
@@ -355,14 +344,14 @@ public class testscript : MonoBehaviour
 
                     if (distance > 0.01f && distance <= smoothingRadius){
                         float2 direction = (positions[index] - positions[particle_index])/distance;
-                        float deriv = smoothingKernelDerivativeNew(smoothingRadius, distance);
+                        float deriv = smoothingKernelDerivative(smoothingRadius, distance);
                         float sharedPressure = getSharedPressure(densities[index], densities[particle_index]);
                         pressureForce+= sharedPressure * direction * deriv * particle_mass / densities[index];
                     }
                     else{
                         float2 random_dir = new float2(Range(-1f, 1f), Range(-1f, 1f));
                         random_dir /= magnitude(random_dir);
-                        float deriv = smoothingKernelDerivativeNew(smoothingRadius, distance);
+                        float deriv = smoothingKernelDerivative(smoothingRadius, distance);
                         float sharedPressure = getSharedPressure(densities[index], densities[particle_index]);
                         pressureForce += sharedPressure * deriv* random_dir * particle_mass / densities[index];
 
@@ -373,13 +362,13 @@ public class testscript : MonoBehaviour
 
         return pressureForce;
     }
-
+    //average the two pressures computed from the density arguments
     float getSharedPressure(float density1, float density2){
         float pressure_1 = densityToPressure(density1);
         float pressure_2 = densityToPressure(density2);
         return (pressure_1 + pressure_2)/2;
     }
-
+    //Convert density to pressure by evaluating the difference between the density and the ideal density constant
     float densityToPressure(float density){
         float density_error = density - ideal_density;
         return density_error * pressure_factor;
